@@ -43,7 +43,7 @@
         #credits { top: 50px; left: 10px; }
         #kills { top: 70px; left: 10px; }
         #enemyCount { top: 90px; left: 10px; }
-        #startScreen, #gameOver, #adScreen, #pauseScreen {
+        #startScreen, #gameOver, #adScreen, #pauseScreen, #loadingScreen {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -61,6 +61,11 @@
             margin-bottom: 10px;
             border-radius: 8px;
             box-shadow: 0 0 10px #0ff;
+        }
+        #loadingScreen p {
+            color: #0ff;
+            font-size: 20px;
+            text-shadow: 0 0 10px #0ff;
         }
         h2 {
             color: #0ff;
@@ -148,7 +153,11 @@
         <div id="credits">Credits: 0</div>
         <div id="kills">Kills: 0</div>
         <div id="enemyCount">Enemies: 0</div>
-        <div id="startScreen">
+        <div id="loadingScreen">
+            <h2>Loading...</h2>
+            <p id="loadingProgress">0%</p>
+        </div>
+        <div id="startScreen" style="display: none;">
             <img src="assets/images/thumbnail.png" alt="Game Thumbnail">
             <h2>Galactic Strike Force</h2>
             <p id="achievement">Rookie Pilot</p>
@@ -200,7 +209,7 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
-        // Load assets
+        // Asset definitions
         const assets = {
             spaceship: new Image(),
             asteroid: new Image(),
@@ -283,62 +292,75 @@
             enemyspawn: 'assets/audio/enemyspawn.mp3',
             powerdown: 'assets/audio/powerdown.mp3'
         };
+
+        // Asset loading
         let assetsLoaded = 0;
         const totalAssets = Object.keys(assets).length;
-        for (let key in assets) {
-            if (assets[key] instanceof Image) {
-                assets[key].src = assetPaths[key];
-                assets[key].onload = () => {
-                    assetsLoaded++;
-                    if (assetsLoaded === totalAssets) {
-                        document.getElementById('startScreen').style.display = 'block';
-                        loadAchievements();
-                    }
-                };
-                assets[key].onerror = () => {
-                    console.error(`Failed to load ${assetPaths[key]}`);
-                    assetsLoaded++;
-                    if (assetsLoaded === totalAssets) {
-                        document.getElementById('startScreen').style.display = 'block';
-                        loadAchievements();
-                    }
-                };
-            } else if (assets[key] instanceof Audio) {
-                assets[key].src = assetPaths[key];
-                assets[key].oncanplaythrough = () => {
-                    assetsLoaded++;
-                    if (assetsLoaded === totalAssets) {
-                        document.getElementById('startScreen').style.display = 'block';
-                        loadAchievements();
-                    }
-                };
-                assets[key].onerror = () => {
-                    console.error(`Failed to load ${assetPaths[key]}`);
-                    assetsLoaded++;
-                    if (assetsLoaded === totalAssets) {
-                        document.getElementById('startScreen').style.display = 'block';
-                        loadAchievements();
-                    }
-                };
-                // Set audio properties
-                assets[key].volume = key === 'bgm' ? 0.3 : 0.7;
-                if (key === 'bgm') {
-                    assets[key].loop = true;
-                }
-            }
+        const loadingProgress = document.getElementById('loadingProgress');
+
+        function updateLoadingProgress() {
+            const percentage = Math.round((assetsLoaded / totalAssets) * 100);
+            loadingProgress.textContent = `${percentage}%`;
         }
 
-        // Sound playback function
+        function loadAsset(key, asset, path) {
+            return new Promise((resolve, reject) => {
+                if (asset instanceof Image) {
+                    asset.src = path;
+                    asset.onload = () => {
+                        assetsLoaded++;
+                        updateLoadingProgress();
+                        resolve();
+                    };
+                    asset.onerror = () => {
+                        console.error(`Failed to load image: ${path}`);
+                        assetsLoaded++;
+                        updateLoadingProgress();
+                        resolve(); // Continue even if an asset fails
+                    };
+                } else if (asset instanceof Audio) {
+                    asset.src = path;
+                    asset.oncanplaythrough = () => {
+                        assetsLoaded++;
+                        updateLoadingProgress();
+                        resolve();
+                    };
+                    asset.onerror = () => {
+                        console.error(`Failed to load audio: ${path}`);
+                        assetsLoaded++;
+                        updateLoadingProgress();
+                        resolve();
+                    };
+                    asset.volume = key === 'bgm' ? 0.3 : 0.7;
+                    if (key === 'bgm') {
+                        asset.loop = true;
+                    }
+                }
+            });
+        }
+
+        // Load all assets
+        async function loadAssets() {
+            const loadPromises = Object.keys(assets).map(key => loadAsset(key, assets[key], assetPaths[key]));
+            await Promise.all(loadPromises);
+            document.getElementById('loadingScreen').style.display = 'none';
+            document.getElementById('startScreen').style.display = 'block';
+            loadAchievements();
+        }
+
+        loadAssets();
+
+        // Sound playback
         function playSound(soundKey) {
             const audio = assets[soundKey];
             if (audio) {
-                audio.currentTime = 0; // Reset to start
+                audio.currentTime = 0;
                 audio.play().catch(e => console.error(`Error playing ${soundKey}:`, e));
             }
         }
 
         // Game state
-        let gameState = 'start';
+        let gameState = 'loading';
         let score = 0;
         let lives = 3;
         let level = 1;
@@ -405,7 +427,12 @@
                 }
                 if (this.invincible) {
                     ctx.globalAlpha = Math.sin(Date.now() / 80) * 0.5 + 0.4;
-                    ctx.drawImage(assets.shield, -this.width / 1.5, -this.height / 1.5, this.width * 1.2, this.height * 1.2);
+                    if (assets.shield.complete && assets.shield.naturalWidth) {
+                        ctx.drawImage(assets.shield, -this.width / 1.5, -this.height / 1.5, this.width * 1.2, this.height * 1.2);
+                    } else {
+                        ctx.fillStyle = '#0ff';
+                        ctx.fillRect(-this.width / 1.5, -this.height / 1.5, this.width * 1.2, this.height * 1.2);
+                    }
                 }
                 ctx.globalAlpha = 1;
                 ctx.restore();
@@ -948,7 +975,7 @@
                 const bullet = bullets[bIndex];
                 if (bullet.vy > 0 && !player.invincible) {
                     if (Math.abs(bullet.x - player.x) < (bullet.width + player.width) / 2 &&
-                        Math.abs(bullet.y - player.y) < (bullet.height + player.height) / 2) {
+                        Math.abs(bullet.y - player.y) < (bullet.height + player.width) / 2) {
                         lives--;
                         bullets.splice(bIndex, 1);
                         cameraShake.timer = 10;
@@ -981,7 +1008,7 @@
                         player.multishotTimer = 600;
                     } else if (powerup.type === 'invincibility') {
                         player.invincible = true;
-                        player.invincibleTimer = 300;
+                        player.invincibilityTimer = 300;
                     } else if (powerup.type === 'missile') player.missileCount += 5;
                     else if (powerup.type === 'plasma') {
                         player.plasmaMode = true;
